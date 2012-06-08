@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
 using Nancy;
@@ -29,24 +30,43 @@ namespace Cassette.Nancy
         //if (Logger != null) Logger.Error("BundleRouteHandler.ProcessRequest : Bundle not found for path '{0}'", context.Request.Url.Path);
         return null;
       }
+      var bundle = bundles[0];
 
-      /* TODO : Caching
-      var actualETag = string.Concat( "\"", module.Assets[0].Hash.ToHexString(), "\"");
-      var givenETag = context.Request.Headers["If-None-Match"];
-      if (givenETag == actualETag)
-      {
-        SendNotModified(actualETag);
-      }
+      var actualETag = GetBundleETag(bundle);
+      var givenETag = context.Request.Headers["If-None-Match"].FirstOrDefault();
+      var response = givenETag == actualETag
+        ? CreateNotModifiedResponse()
+        : CreateBundleResponse(bundle);
 
-      CacheLongTime(actualETag);
+      return SetCacheHeaders(response, actualETag);
+    }
 
-      var encoding = request.Headers["Accept-Encoding"];
-      response.Filter = EncodeStreamAndAppendResponseHeaders(response.Filter, encoding);
-      */
+    private static Response CreateNotModifiedResponse()
+    {
+      return new Response() { StatusCode = HttpStatusCode.NotModified };
+    }
 
-      var response = new StreamResponse(() => bundles[0].Assets[0].OpenStream(), bundles[0].ContentType);
-      //if (Logger != null) Logger.Trace("BundleRouteHandler.ProcessRequest : Returned response for '{0}'", context.Request.Url.Path);
+    private StreamResponse CreateBundleResponse(Bundle bundle)
+    {
+      return new StreamResponse(() => bundle.Assets[0].OpenStream(), bundle.ContentType);
+    }
+
+    private Response SetCacheHeaders(Response response, string actualETag)
+    {
+      response.WithHeader("Cache-Control", "public");
+      response.WithHeader("ETag", actualETag);
+      response.WithHeader("Expires", DateTime.UtcNow.AddYears(1).ToString("R"));
       return response;
+    }
+
+    private static string GetBundleETag(Bundle bundle)
+    {
+      return string.Concat("\"", ToHexString(bundle.Hash), "\"");
+    }
+
+    public static string ToHexString(IEnumerable<byte> bytes)
+    {
+        return string.Concat(bytes.Select(b => b.ToString("x2")).ToArray());
     }
   }
 }
