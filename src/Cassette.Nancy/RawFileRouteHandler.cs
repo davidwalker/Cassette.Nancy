@@ -1,5 +1,7 @@
 ﻿using System;
 using System.IO;
+using System.Linq;
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using Nancy;
 using Nancy.Responses;
@@ -37,9 +39,42 @@ namespace Cassette.Nancy
         return null;
       }
 
-      var response = new StreamResponse(() => File.OpenRead(filePath), MimeTypes.GetMimeType(filePath));
-      //if (Logger != null) Logger.Trace("RawFileRouteHandler.ProcessRequest : Returned response for '{0}'", context.Request.Url.Path);
+      var givenETag = context.Request.Headers["If-None-Match"].FirstOrDefault();
+
+      var response = givenETag == GetETag(filePath)
+        ? CreateNotModifiedResponse()
+        : CreateFileResponse(filePath);
+
+      return SetCacheHeaders(response, GetETag(filePath));
+    }
+
+    private Response CreateNotModifiedResponse()
+    {
+      return new Response { StatusCode = HttpStatusCode.NotModified };
+    }
+
+    private static StreamResponse CreateFileResponse(string filePath)
+    {
+      return new StreamResponse(() => File.OpenRead(filePath), MimeTypes.GetMimeType(filePath));
+    }
+
+    private Response SetCacheHeaders(Response response, string actualETag)
+    {
+      response.WithHeader("Cache-Control", "public");
+      response.WithHeader("ETag", actualETag);
+      response.WithHeader("Expires", DateTime.UtcNow.AddYears(1).ToString("R"));
       return response;
+    }
+
+    string GetETag(string fullPath)
+    {
+        using (var hash = SHA1.Create())
+        {
+            using (var file = File.OpenRead(fullPath))
+            {
+                return "\"" + Convert.ToBase64String(hash.ComputeHash(file)) + "\"";
+            }
+        }
     }
 
     private readonly string applicationRoot;
